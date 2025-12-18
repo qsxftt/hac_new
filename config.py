@@ -1,4 +1,5 @@
 # config.py
+
 import os
 from dotenv import load_dotenv
 from typing import Optional
@@ -8,9 +9,8 @@ load_dotenv()
 class Config:
     # API Keys
     GIGACHAT_API_KEY: str = os.getenv("GIGACHAT_API_KEY", "")
-    
     if not GIGACHAT_API_KEY:
-        print("⚠️  ВНИМАНИЕ: GIGACHAT_API_KEY не найден в .env")
+        print("⚠️ ВНИМАНИЕ: GIGACHAT_API_KEY не найден в .env")
         print("   Получите ключ на https://developers.sber.ru/portal/products/gigachat")
     
     # Настройки модели
@@ -41,22 +41,42 @@ class Config:
     # Настройки видео
     MAX_CONTENT_LENGTH: int = int(os.getenv("MAX_CONTENT_LENGTH", "100")) * 1024 * 1024  # MB to bytes
     
+    # ======== НОВЫЕ НАСТРОЙКИ БД ========
+    
+    # Путь к базе данных SQLite
+    SQLALCHEMY_DATABASE_URI: str = os.getenv(
+        "DATABASE_URL", 
+        "sqlite:///instance/app.db"
+    )
+    
+    # Отключаем tracking для производительности
+    SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
+    
+    # Секретный ключ для сессий (ВАЖНО: измените в продакшене!)
+    SECRET_KEY: str = os.getenv("SECRET_KEY", os.urandom(24).hex())
+    
+    # Настройки сессий
+    SESSION_TYPE: str = "filesystem"
+    PERMANENT_SESSION_LIFETIME: int = 86400  # 24 часа в секундах
+    
     @classmethod
     def validate(cls):
         """Валидация конфигурации"""
-        print("\n⚙️  ТЕКУЩИЕ НАСТРОЙКИ:")
+        print("\n⚙️ ТЕКУЩИЕ НАСТРОЙКИ:")
         print(f"   • Модель Whisper: {cls.WHISPER_MODEL}")
         print(f"   • Температура GigaChat: {cls.GIGACHAT_TEMPERATURE}")
         print(f"   • Макс. токены GigaChat: {cls.GIGACHAT_MAX_TOKENS}")
         print(f"   • Порог темпа: {cls.SPEED_THRESHOLD} слов/сек")
         print(f"   • Отправка в GigaChat: {'ВКЛ' if cls.SEND_TO_GIGACHAT else 'ВЫКЛ'}")
+        print(f"   • База данных: {cls.SQLALCHEMY_DATABASE_URI}")
         
         required_dirs = [
             cls.UPLOAD_FOLDER,
             cls.PLOTS_FOLDER,
             cls.AUDIO_FOLDER,
             cls.TRANSCRIPTS_FOLDER,
-            cls.RESULTS_FOLDER
+            cls.RESULTS_FOLDER,
+            'instance'  # Папка для БД
         ]
         
         for directory in required_dirs:

@@ -225,58 +225,123 @@ def analyze_delivery(segments, filler_words, speed_threshold=config.SPEED_THRESH
 
 # --- Сохранение результатов ---
 def save_results(transcript, transcript_ts, results, audio_features, video_name):
+    """
+    Сохранение результатов анализа
+    ВНИМАНИЕ: Теперь сохраняем только транскрипты и графики в файлы,
+    основные данные будут в БД
+    """
     import time
-
+    from pathlib import Path
+    
     stamp = int(time.time())
-    dir = Path(f"results/{stamp}_{video_name}")
-    dir.mkdir(parents=True, exist_ok=True)
-
-    (dir / "transcript.txt").write_text(transcript, encoding="utf-8")
-    (dir / "transcript_with_timestamps.txt").write_text(transcript_ts, encoding="utf-8")
-
+    
+    # Создаем папку для результатов этого анализа
+    results_dir = Path(config.RESULTS_FOLDER) / f"{stamp}_{video_name}"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Сохраняем транскрипты (для бэкапа)
+    (results_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
+    (results_dir / "transcript_with_timestamps.txt").write_text(transcript_ts, encoding="utf-8")
+    
+    # Формируем данные для возврата (будут сохранены в БД)
     data = {
         "metrics": results.to_dict(),
         "pauses": [p.to_dict() for p in results.pauses],
-        "filler_words": [{"word": f.word, "time": f.segment_start, "context": f.context} for f in results.filler_words],
-        "repetitions": [{"word": r.word, "count": r.count, "occ": r.occurrences} for r in results.repetitions]
+        "filler_words": [
+            {"word": f.word, "time": f.segment_start, "context": f.context} 
+            for f in results.filler_words
+        ],
+        "repetitions": [
+            {"word": r.word, "count": r.count, "occ": r.occurrences} 
+            for r in results.repetitions
+        ]
     }
+    
+    # Сохраняем JSON для бэкапа
+    (results_dir / "analysis_results.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), 
+        encoding="utf-8"
+    )
+    
+    logger.info(f"Результаты сохранены в {results_dir}")
+    
+    # Возвращаем путь к папке для использования в app.py
+    return str(results_dir)
 
-    (dir / "analysis_results.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 # --- Основная функция ---
-def analyze_video(video_path, use_saved=False):
+def analyze_video(video_path, use_saved=False, progress_callback=None):
+    """
+    Главная функция анализа видео
+    
+    Args:
+        video_path: путь к видео файлу
+        use_saved: использовать сохраненные данные (для тестирования)
+        progress_callback: функция для обновления прогресса (progress, message)
+    """
+    
+    def update_progress(progress: int, message: str):
+        """Обновить прогресс если callback задан"""
+        if progress_callback:
+            progress_callback(progress, message)
+        logger.info(f"Прогресс: {progress}% - {message}")
+    
     video = Path(video_path)
     audio = Path(config.AUDIO_FOLDER) / f"{video.stem}.wav"
-
     filler_words = load_filler_words()
-
+    
+    # Шаг 1: Извлечение аудио (10-25%)
+    update_progress(10, 'Извлечение аудио из видео...')
     if not extract_audio_from_video(str(video), str(audio)):
         raise RuntimeError("Не удалось извлечь аудио")
-
+    update_progress(25, 'Аудио успешно извлечено')
+    
+    # Шаг 2: Транскрипция (25-55%)
+    update_progress(30, 'Распознавание речи через AssemblyAI...')
     transcript, transcript_ts, segments = transcribe_audio_with_timestamps(str(audio))
-
+    update_progress(55, 'Речь успешно распознана')
+    
+    # Шаг 3: Анализ метрик (55-70%)
+    update_progress(60, 'Анализ темпа речи и пауз...')
     results = analyze_delivery(segments, filler_words)
-
+    update_progress(70, 'Базовый анализ завершен')
+    
+    # Шаг 4: Анализ аудио (70-75%)
+    update_progress(72, 'Анализ аудио характеристик...')
     try:
         features = analyze_audio_features(str(audio), segments)
         results.audio_features = features
+        update_progress(75, 'Аудио анализ завершен')
     except Exception as e:
         logger.warning(f"Анализ аудио не выполнен: {e}")
-
-    generate_plots(results, config.PLOTS_FOLDER)
-
+        update_progress(75, 'Аудио анализ пропущен')
+    
+    # Шаг 5: Генерация графиков (75-90%)
+    update_progress(78, 'Создание графика темпа речи...')
+    generate_plots(results, config.PLOTS_FOLDER, progress_callback=lambda p, m: update_progress(78 + p, m))
+    update_progress(90, 'Все графики созданы')
+    
+    # Шаг 6: GigaChat анализ (90-95%)
+    update_progress(92, 'Отправка в GigaChat для анализа...')
     feedback = analyzer.analyze_speech(transcript, results.to_dict()) if config.SEND_TO_GIGACHAT else "Gigachat disabled"
-
+    update_progress(95, 'Фидбэк от AI получен')
+    
+    # Шаг 7: Сохранение (95-98%)
+    update_progress(96, 'Сохранение результатов...')
     save_results(transcript, transcript_ts, results, results.audio_features, video.stem)
-
     Path("feedback_report.txt").write_text(feedback, encoding="utf-8")
-
+    update_progress(98, 'Результаты сохранены')
+    
+    logger.info("Анализ завершен успешно")
+    
     return {
         "transcript": transcript,
         "transcript_with_timestamps": transcript_ts,
         "results": results.to_dict(),
         "feedback": feedback
     }
+
+
 
 # --- CLI ---
 if __name__ == "__main__":

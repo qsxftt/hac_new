@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block title %}Прогресс - AI Тренер{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        transition: transform 0.3s;
+    }
+    .stat-card:hover {
+        transform: translateY(-5px);
+    }
+    .suggestion-card {
+        border-left: 4px solid;
+    }
+    .suggestion-card.border-danger {
+        border-left-color: #dc3545 !important;
+    }
+    .suggestion-card.border-warning {
+        border-left-color: #ffc107 !important;
+    }
+    .suggestion-card.border-success {
+        border-left-color: #28a745 !important;
+    }
+    .chart-container {
+        position: relative;
+        height: 300px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-chart-line"></i> Твой прогресс
+        </h1>
+
+        <!-- Общая статистика -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-primary text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-video fa-3x mb-3"></i>
+                        <h2 class="mb-0">{{ stats.total_analyses }}</h2>
+                        <p class="mb-0">Всего анализов</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-success text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-dumbbell fa-3x mb-3"></i>
+                        <h2 class="mb-0">{{ stats.exercises_completed }}</h2>
+                        <p class="mb-0">Выполнено упражнений</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-info text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-percentage fa-3x mb-3"></i>
+                        <h2 class="mb-0">{{ stats.completion_rate|round(1) }}%</h2>
+                        <p class="mb-0">Процент выполнения</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3 mb-3">
+                <div class="card stat-card bg-warning text-white h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-calendar-check fa-3x mb-3"></i>
+                        <h2 class="mb-0">{{ (current_user.created_at.date() - current_user.created_at.date()).days }}</h2>
+                        <p class="mb-0">Дней с регистрации</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if stats.total_analyses > 0 %}
+        <!-- Средние показатели -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar"></i> Средние показатели
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <h4 class="text-{{ 'danger' if stats.avg_metrics.avg_tempo > 5 else 'warning' if stats.avg_metrics.avg_tempo < 2 else 'success' }}">
+                                {{ stats.avg_metrics.avg_tempo|round(1) }}
+                            </h4>
+                            <p class="text-muted mb-0">Темп речи (слов/сек)</p>
+                            <small class="text-muted">Норма: 3-4</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <h4 class="text-{{ 'danger' if stats.avg_metrics.pauses_count > 10 else 'warning' if stats.avg_metrics.pauses_count > 5 else 'success' }}">
+                                {{ stats.avg_metrics.pauses_count|round(1) }}
+                            </h4>
+                            <p class="text-muted mb-0">Паузы (>1 сек)</p>
+                            <small class="text-muted">Меньше — лучше</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <h4 class="text-{{ 'danger' if stats.avg_metrics.filler_words_count > 15 else 'warning' if stats.avg_metrics.filler_words_count > 7 else 'success' }}">
+                                {{ stats.avg_metrics.filler_words_count|round(1) }}
+                            </h4>
+                            <p class="text-muted mb-0">Слова-паразиты</p>
+                            <small class="text-muted">Меньше — лучше</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <h4 class="text-{{ 'danger' if stats.avg_metrics.repetitions_count > 5 else 'success' }}">
+                                {{ stats.avg_metrics.repetitions_count|round(1) }}
+                            </h4>
+                            <p class="text-muted mb-0">Повторы</p>
+                            <small class="text-muted">Меньше — лучше</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- График прогресса -->
+        {% if timeline|length > 1 %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i> Динамика улучшений
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="progressChart"></canvas>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Рекомендации -->
+        {% if suggestions %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-lightbulb"></i> Рекомендации
+                </h5>
+            </div>
+            <div class="card-body">
+                {% for suggestion in suggestions %}
+                <div class="card suggestion-card border-{{ suggestion.color }} mb-3">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start">
+                            <div class="me-3">
+                                <i class="fas {{ suggestion.icon }} fa-2x text-{{ suggestion.color }}"></i>
+                            </div>
+                            <div>
+                                <h6 class="mb-1">{{ suggestion.title }}</h6>
+                                <p class="mb-0 text-muted">{{ suggestion.text }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Последние выполненные упражнения -->
+        {% if recent_progress %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-check-circle"></i> Последние выполненные упражнения
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group list-group-flush">
+                    {% for progress in recent_progress %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            <strong>{{ progress.exercise.title }}</strong>
+                            <small class="text-muted ms-2">• {{ progress.exercise.category }}</small>
+                        </div>
+                        <small class="text-muted">{{ progress.completed_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <!-- Пусто -->
+        <div class="alert alert-info text-center py-5" role="alert">
+            <i class="fas fa-chart-line fa-3x mb-3 d-block"></i>
+            <h4>Еще нет данных для анализа</h4>
+            <p class="text-muted">Загрузите хотя бы одно видео, чтобы увидеть свой прогресс!</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary mt-3">
+                <i class="fas fa-upload"></i> Загрузить видео
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if timeline|length > 1 %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+// Данные для графика
+const timelineData = {{ timeline|tojson }};
+
+const dates = timelineData.map(d => d.date);
+const tempoData = timelineData.map(d => d.tempo);
+const pausesData = timelineData.map(d => d.pauses);
+const fillersData = timelineData.map(d => d.fillers);
+
+// Создаем график
+const ctx = document.getElementById('progressChart').getContext('2d');
+const progressChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: dates,
+        datasets: [
+            {
+                label: 'Темп речи',
+                data: tempoData,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                tension: 0.4,
+                yAxisID: 'y'
+            },
+            {
+                label: 'Паузы',
+                data: pausesData,
+                borderColor: 'rgb(255, 159, 64)',
+                backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                tension: 0.4,
+                yAxisID: 'y1'
+            },
+            {
+                label: 'Слова-паразиты',
+                data: fillersData,
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                tension: 0.4,
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: 'Ваш прогресс по времени'
+            }
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                title: {
+                    display: true,
+                    text: 'Темп (слов/сек)'
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Количество'
+                },
+                grid: {
+                    drawOnChartArea: false,
+                }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

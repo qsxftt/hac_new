@@ -1,5 +1,7 @@
 # app.py
+
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
+from flask_login import LoginManager, login_required, current_user
 import os
 import re
 import threading
@@ -8,451 +10,589 @@ import json
 from pathlib import Path
 import logging
 from werkzeug.utils import secure_filename
-import markdown  # Для конвертации Markdown в HTML
+import markdown
 
+# Импорты из наших модулей
 from ai_presenter_coach import analyze_video
 from config import config
+from models import db, User, Analysis, AnalysisResult, Exercise, UserProgress
+from database import init_db
+from auth import auth_bp
 
+# Настройка логирования
 logging.basicConfig(
     level=logging.DEBUG if config.DEBUG else logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
+# Инициализация Flask приложения
 app = Flask(__name__)
+
+# Создаем папку instance если её нет (ДО инициализации БД!)
+os.makedirs('instance', exist_ok=True)
+
+# Базовые настройки
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = config.MAX_CONTENT_LENGTH
-app.config['SECRET_KEY'] = os.urandom(24)
+app.config['SECRET_KEY'] = config.SECRET_KEY
 
+# Настройки БД с абсолютным путем для Windows
+db_path = os.path.join(os.getcwd(), 'instance', 'app.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+logger.info(f"📍 Путь к БД: {db_path}")
+# ===================================================
+
+# Инициализация базы данных
+init_db(app)
+# Инициализация Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'auth.login'  # Куда перенаправлять неавторизованных
+login_manager.login_message = '🔒 Пожалуйста, войдите для доступа к этой странице.'
+login_manager.login_message_category = 'info'
+
+# Регистрация Blueprint для аутентификации
+app.register_blueprint(auth_bp)
+
+# Разрешенные расширения видео
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
 
+# Словарь для отслеживания задач (временное решение, в продакшене использовать Redis)
 tasks = {}
 
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Загрузка пользователя по ID для Flask-Login"""
+    return User.query.get(int(user_id))
+
+
 def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    """Проверка разрешенного расширения файла"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 def markdown_to_html(text):
-    """Конвертирует Markdown в безопасный HTML с улучшенной поддержкой кастомных форматов"""
+    """Конвертирует Markdown в безопасный HTML"""
     if not text:
         return ""
-    
     try:
-        # Улучшенная обработка кастомного формата (сохранение нумерации и структуры)
-        # Сначала защищаем нумерацию и специальные символы
         lines = text.split('\n')
         processed_lines = []
-        
         for line in lines:
-            # Если строка начинается с цифры и точки (нумерация критериев)
             if re.match(r'^\d+\.\s+', line):
-                # Обернем в div для сохранения структуры
-                line = f'<div class="criteria-item">{line}</div>'
-            # Если строка начинается с "оценивается:" или "шкала оценки:"
-            elif line.strip().startswith('оценивается:') or line.strip().startswith('шкала оценки:'):
-                line = f'<div class="criteria-section">{line}</div>'
-            # Если строка начинается с "•" (подпункты)
-            elif line.strip().startswith('•'):
-                line = f'<div class="subpoint">{line}</div>'
-            
+                line = f'<div class="criterion-line">{line}</div>'
             processed_lines.append(line)
         
-        processed_text = '\n'.join(processed_lines)
-        
-        # Конвертируем Markdown в HTML
-        html = markdown.markdown(
-            processed_text, 
-            extensions=['extra', 'tables', 'nl2br', 'fenced_code'],
-            output_format='html5'
-        )
-        
-        # Добавляем стили для лучшего отображения
-        html = html.replace('<h1>', '<h1 class="mt-4 mb-3">')
-        html = html.replace('<h2>', '<h2 class="mt-3 mb-2">')
-        html = html.replace('<h3>', '<h3 class="mt-2 mb-2">')
-        
-        # Специальные стили для кастомного формата
-        html = html.replace('<div class="criteria-item">', '<div class="criteria-item mb-3 p-3 border-start border-4 border-primary">')
-        html = html.replace('<div class="criteria-section">', '<div class="criteria-section mb-2 fw-bold">')
-        html = html.replace('<div class="subpoint">', '<div class="subpoint ms-4 mb-1">')
-        
-        # Обработка разделителей
-        html = html.replace('--- ТЕХНИЧЕСКИЕ МЕТРИКИ РЕЧИ ---', 
-                          '<hr class="my-4"><h3 class="text-warning">🎤 Технические метрики речи</h3>')
-        html = html.replace('--- ОБЩИЕ ВЫВОДЫ И РЕКОМЕНДАЦИИ ---',
-                          '<hr class="my-4"><h3 class="text-success">💡 Общие выводы и рекомендации</h3>')
-        
-        # Улучшаем отображение оценок
-        html = re.sub(r'ОЦЕНКА:\s*(\d+)/10', 
-                     r'<div class="alert alert-info mt-2"><strong>ОЦЕНКА: \1/10</strong></div>', 
-                     html)
-        
-        # Улучшаем отображение комментариев к подпунктам
-        html = html.replace(' - ОЦЕНКА: ХОРОШО', ' - <span class="text-success">✅ ХОРОШО</span>')
-        html = html.replace(' - ОЦЕНКА: СРЕДНЕ', ' - <span class="text-warning">⚠️ СРЕДНЕ</span>')
-        html = html.replace(' - ОЦЕНКА: ПЛОХО', ' - <span class="text-danger">❌ ПЛОХО</span>')
-        
+        text = '\n'.join(processed_lines)
+        html = markdown.markdown(text, extensions=['extra', 'nl2br'])
         return html
-        
     except Exception as e:
         logger.error(f"Ошибка конвертации Markdown: {e}")
-        # Возвращаем простой HTML, если конвертация не удалась
-        return f'<div class="feedback-content">{text.replace(chr(10), "<br>")}</div>'
+        return text
 
-def update_task_progress(task_id, progress, message=""):
-    """Обновляет прогресс задачи"""
-    if task_id in tasks:
-        tasks[task_id]['progress'] = progress
-        if message:
-            tasks[task_id]['message'] = message
-        tasks[task_id]['last_update'] = time.time()
 
-def process_video_task(task_id, video_path, scenario=None):
-    """Фоновая задача обработки видео"""
-    try:
-        update_task_progress(task_id, 10, "Извлечение аудио из видео...")
-        
-        from ai_presenter_coach import (
-            extract_audio_from_video, transcribe_audio_with_timestamps,
-            analyze_delivery, load_filler_words, analyze_audio_features,
-            generate_plots, save_results, AnalysisResults, Segment
-        )
-        from gigachat_analyzer import analyzer
-        
-        # 1. Извлечение аудио
-        audio_path = Path(config.AUDIO_FOLDER) / f"{Path(video_path).stem}.wav"
-        if not extract_audio_from_video(video_path, str(audio_path)):
-            raise RuntimeError("Не удалось извлечь аудио")
-        
-        update_task_progress(task_id, 25, "Транскрибация речи...")
-        
-        # 2. Транскрибация
-        transcript, transcript_with_ts, segments = transcribe_audio_with_timestamps(str(audio_path))
-        
-        update_task_progress(task_id, 40, "Анализ манеры речи...")
-        
-        # 3. Анализ речи
-        filler_words = load_filler_words()
-        results = analyze_delivery(segments, filler_words, config.SPEED_THRESHOLD)
-        
-        update_task_progress(task_id, 55, "Анализ аудио-характеристик...")
-        
-        # 4. Анализ аудио
-        try:
-            audio_features = analyze_audio_features(str(audio_path), segments)
-            results.audio_features = audio_features
-        except Exception as e:
-            logger.warning(f"Не удалось проанализировать аудио: {e}")
-            results.audio_features = None
-        
-        update_task_progress(task_id, 70, "Генерация графиков...")
-        
-        # 5. Графики
-        generate_plots(results, output_dir=config.PLOTS_FOLDER)
-        
-        update_task_progress(task_id, 85, "Анализ структуры выступления...")
-        
-        # 6. Фидбэк от GigaChat с анализом структуры
-        feedback = ""
-        if config.SEND_TO_GIGACHAT and config.GIGACHAT_API_KEY and config.GIGACHAT_API_KEY != "ваш_ключ_здесь":
-            try:
-                feedback = analyzer.analyze_speech(transcript, results.to_dict(), scenario)
-            except Exception as e:
-                logger.error(f"Ошибка получения фидбэка: {e}")
-                feedback = analyzer._get_fallback_feedback(results.to_dict())
-        else:
-            feedback = analyzer._get_fallback_feedback(results.to_dict())
-        
-        update_task_progress(task_id, 95, "Сохранение результатов...")
-        
-        # 7. Сохранение результатов
-        video_name = Path(video_path).stem
-        save_results(transcript, transcript_with_ts, results, results.audio_features, video_name)
-        
-        # 8. Сохранение фидбэка
-        feedback_path = Path("feedback_report.txt")
-        feedback_path.write_text(feedback, encoding="utf-8")
-        
-        # Обновляем задачу
-        tasks[task_id]['status'] = 'completed'
-        tasks[task_id]['progress'] = 100
-        tasks[task_id]['results'] = {
-            'transcript': transcript,
-            'transcript_with_ts': transcript_with_ts,
-            'results': results.to_dict(),
-            'feedback': feedback,
-            'scenario': scenario
-        }
-        tasks[task_id]['completed_at'] = time.time()
-        
-        logger.info(f"✅ Задача {task_id} успешно завершена")
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка обработки задачи {task_id}: {e}")
-        tasks[task_id]['status'] = 'failed'
-        tasks[task_id]['error'] = str(e)
-        tasks[task_id]['progress'] = 100
-
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/')
 def index():
+    """Главная страница"""
+    # Показываем index.html (там уже есть логика для авторизованных/неавторизованных)
     return render_template('index.html')
 
-@app.route('/upload', methods=['POST'])
-def upload_video():
-    if 'video' not in request.files:
-        return jsonify({'error': 'No video file provided'}), 400
-    
-    file = request.files['video']
-    
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'File type not allowed'}), 400
-    
-    # Сохраняем файл
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-    
-    # Создаем задачу
-    task_id = str(int(time.time() * 1000))
-    tasks[task_id] = {
-        'filename': filename,
-        'filepath': filepath,
-        'status': 'pending',
-        'progress': 0,
-        'message': 'Ожидание начала обработки...',
-        'created_at': time.time(),
-        'last_update': time.time(),
-        'results': None,
-        'error': None
-    }
-    # Сохраняем сценарий анализа
-    scenario_type = request.form.get('scenario_type') if request.form else None
-    scenario_text = request.form.get('scenario_text') if request.form else None
-    tasks[task_id]['scenario'] = {
-        'type': scenario_type,
-        'text': scenario_text
-    }
-    
-    # Запускаем обработку в фоне
-    thread = threading.Thread(
-        target=process_video_task,
-        args=(task_id, filepath, tasks[task_id].get('scenario')),
-        daemon=True
-    )
-    thread.start()
-    
-    return jsonify({
-        'task_id': task_id,
-        'message': 'Video uploaded and processing started',
-        'redirect': f'/results/{task_id}'
-    })
 
-@app.route('/status/<task_id>')
-def get_status(task_id):
-    if task_id not in tasks:
-        return jsonify({'error': 'Task not found'}), 404
-    
-    task = tasks[task_id]
-    
-    # Автоматически удаляем старые завершенные задачи (старше 1 часа)
-    if task['status'] in ['completed', 'failed']:
-        if time.time() - task.get('completed_at', task['created_at']) > 3600:
-            del tasks[task_id]
-            return jsonify({'error': 'Task expired'}), 404
-    
-    return jsonify({
-        'task_id': task_id,
-        'status': task['status'],
-        'progress': task['progress'],
-        'message': task.get('message', ''),
-        'filename': task['filename'],
-        'error': task.get('error'),
-        'has_results': task['status'] == 'completed'
-    })
 
-@app.route('/results/<task_id>')
-def show_results(task_id):
-    if task_id not in tasks:
-        return render_template('error.html', error='Задача не найдена'), 404
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """Личный кабинет пользователя"""
+    analyses = Analysis.query.filter_by(user_id=current_user.id)\
+                              .order_by(Analysis.created_at.desc())\
+                              .limit(5)\
+                              .all()
     
-    task = tasks[task_id]
+    # Считаем количество доступных упражнений
+    total_exercises = Exercise.query.count()
     
-    if task['status'] == 'pending':
-        return render_template('processing.html', 
-                             task_id=task_id, 
-                             progress=task['progress'],
-                             message=task.get('message', 'Обработка...'))
-    
-    if task['status'] == 'processing':
-        return render_template('processing.html', 
-                             task_id=task_id, 
-                             progress=task['progress'],
-                             message=task.get('message', 'Обработка...'))
-    
-    if task['status'] == 'failed':
-        return render_template('error.html', 
-                             error=f"Ошибка обработки: {task.get('error', 'Неизвестная ошибка')}"), 400
-    
-    # Загружаем результаты из задачи
-    results = task.get('results')
-    if not results:
-        return render_template('error.html', error='Результаты не найдены'), 404
-    
-    # Конвертируем фидбэк из Markdown в HTML
-    feedback_html = markdown_to_html(results.get('feedback', ''))
-    
-    # Ищем графики
-    plots_dir = Path(config.PLOTS_FOLDER)
-    plots = []
-    
-    if plots_dir.exists():
-        plot_files = list(plots_dir.glob('*.png'))
-        plot_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        
-        for plot_file in plot_files[:6]:
-            plots.append(plot_file.name)
-    
-    return render_template('results.html',
-                         transcript=results.get('transcript', ''),
-                         transcript_with_ts=results.get('transcript_with_ts', ''),
-                         feedback=feedback_html,
-                         raw_feedback=results.get('feedback', ''),
-                         plots=plots,
-                         metrics=results.get('results', {}),
-                         scenario=task.get('scenario', {}))
+    return render_template('dashboard.html', 
+                         user=current_user,
+                         analyses=analyses,
+                         total_exercises=total_exercises)
 
-@app.route('/api/analysis/<task_id>')
-def get_analysis_data(task_id):
-    if task_id not in tasks:
-        return jsonify({'error': 'Task not found'}), 404
-    
-    task = tasks[task_id]
-    
-    if task['status'] != 'completed':
-        return jsonify({'error': 'Analysis not complete'}), 400
-    
-    return jsonify(task['results'])
 
-@app.route('/plots/<filename>')
-def serve_plot(filename):
-    return send_from_directory(config.PLOTS_FOLDER, filename)
+
+@app.route('/upload')
+@login_required
+def upload():
+    """Загрузка видео - перенаправление на главную"""
+    return redirect(url_for('index'))
+
+
 
 @app.route('/history')
+@login_required
 def history():
-    """История анализов"""
-    try:
-        results_folder = Path(config.RESULTS_FOLDER)
-        
-        if not results_folder.exists():
-            return render_template('history.html', 
-                                 history=[], 
-                                 message='История анализов пуста')
-        
-        results_dirs = list(results_folder.glob("*"))
-        if not results_dirs:
-            return render_template('history.html', 
-                                 history=[], 
-                                 message='История анализов пуста')
-        
-        results_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        
-        history_items = []
-        
-        for dir_path in results_dirs[:20]:
-            json_path = dir_path / "analysis_results.json"
-            if json_path.exists():
-                try:
-                    with open(json_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    metrics = data.get('metrics', {})
-                    
-                    status_color = 'success'
-                    if metrics.get('pauses_count', 0) > 5:
-                        status_color = 'warning'
-                    if metrics.get('filler_words_count', 0) > 10:
-                        status_color = 'danger'
-                    
-                    history_items.append({
-                        'id': dir_path.name,
-                        'video_name': data['metadata'].get('video_name', 'Неизвестно'),
-                        'date': data['metadata'].get('analysis_date', 'Неизвестно'),
-                        'timestamp': data['metadata'].get('timestamp', 0),
-                        'metrics': metrics,
-                        'status_color': status_color,
-                        'duration': f"{metrics.get('total_duration', 0):.0f} сек",
-                        'tempo': f"{metrics.get('avg_tempo', 0):.1f}",
-                        'pauses': metrics.get('pauses_count', 0),
-                        'fillers': metrics.get('filler_words_count', 0),
-                        'repetitions': metrics.get('repetitions_count', 0)
-                    })
-                except Exception as e:
-                    logger.error(f"Ошибка загрузки {json_path}: {e}")
-                    continue
-        
-        return render_template('history.html', 
-                             history=history_items,
-                             total=len(history_items))
-        
-    except Exception as e:
-        logger.error(f"Ошибка загрузки истории: {e}")
-        return render_template('error.html', 
-                             error=f"Ошибка загрузки истории: {str(e)}"), 500
+    """История анализов пользователя"""
+    analyses = Analysis.query.filter_by(user_id=current_user.id)\
+                              .order_by(Analysis.created_at.desc())\
+                              .all()
+    
+    return render_template('history.html', analyses=analyses)
 
-@app.route('/api/recent')
-def get_recent_analyses():
-    """API для получения последних анализов"""
+
+@app.route('/results/<int:analysis_id>')
+@login_required
+def results(analysis_id):
+    """Просмотр результатов конкретного анализа"""
+    analysis = Analysis.query.get_or_404(analysis_id)
+    
+    # Проверка прав доступа
+    if analysis.user_id != current_user.id:
+        logger.warning(f"Попытка доступа к чужому анализу: user={current_user.id}, analysis={analysis_id}")
+        return "Доступ запрещен", 403
+    
+    result = analysis.result
+    
+    if not result:
+        return "Результаты не найдены", 404
+    
+    # Получаем метрики
+    metrics = result.get_metrics()
+    
+    # Получаем пути к графикам
+    plots = result.get_plots_paths()
+    
+    # Конвертируем фидбэк из Markdown в HTML
+    feedback_html = markdown_to_html(result.feedback)
+    
+    return render_template('results.html',
+                         analysis=analysis,
+                         metrics=metrics,
+                         plots=plots,
+                         feedback=feedback_html,
+                         transcript=result.transcript,
+                         scenario={'type': analysis.scenario_type, 'text': analysis.scenario_text})
+
+
+# ============ СТАРЫЕ МАРШРУТЫ (временно оставляем для совместимости) ============
+
+@app.route('/analyze', methods=['POST'])
+@login_required
+def analyze():
+    """Запуск анализа видео"""
+    if 'video' not in request.files:
+        return jsonify({'error': 'Видео не найдено'}), 400
+    
+    video_file = request.files['video']
+    
+    if video_file.filename == '':
+        return jsonify({'error': 'Файл не выбран'}), 400
+    
+    if not allowed_file(video_file.filename):
+        return jsonify({'error': 'Недопустимый формат файла'}), 400
+    
     try:
-        results_dirs = list(Path(config.RESULTS_FOLDER).glob("*")) if Path(config.RESULTS_FOLDER).exists() else []
-        results_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        # Сохраняем файл
+        filename = secure_filename(video_file.filename)
+        timestamp = str(int(time.time()))
+        unique_filename = f"{timestamp}_{filename}"
+        video_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        video_file.save(video_path)
         
-        recent = []
+        # Получаем параметры сценария
+        scenario_type = request.form.get('scenario', 'academic')
+        scenario_text = request.form.get('custom_criteria', '')
         
-        for dir_path in results_dirs[:5]:
-            json_path = dir_path / "analysis_results.json"
-            if json_path.exists():
-                try:
-                    with open(json_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        recent.append(data['metrics'])
-                except:
-                    continue
+        # Создаем запись в БД
+        analysis = Analysis(
+            user_id=current_user.id,
+            video_filename=filename,
+            video_path=video_path,
+            scenario_type=scenario_type,
+            scenario_text=scenario_text if scenario_type == 'custom' else None,
+            status='processing'
+        )
+        db.session.add(analysis)
+        db.session.commit()
         
-        return jsonify({'recent': recent, 'count': len(recent)})
+        task_id = f"task_{timestamp}"
+        tasks[task_id] = {
+            'status': 'processing',
+            'progress': 0,
+            'message': 'Начинаем анализ...',
+            'analysis_id': analysis.id
+        }
+        
+        # Запускаем анализ в отдельном потоке
+        thread = threading.Thread(
+            target=process_video_task,
+            args=(task_id, video_path, analysis.id, {'type': scenario_type, 'text': scenario_text})
+        )
+        thread.start()
+        
+        return jsonify({
+            'task_id': task_id,
+            'redirect': url_for('processing', task_id=task_id)
+        })
+        
     except Exception as e:
+        logger.error(f"Ошибка при загрузке видео: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/delete/<analysis_id>', methods=['POST'])
+
+def process_video_task(task_id, video_path, analysis_id, scenario):
+    """Обработка видео в фоновом режиме"""
+    
+    # ВАЖНО: Оборачиваем всё в контекст приложения!
+    with app.app_context():
+        try:
+            tasks[task_id]['progress'] = 10
+            tasks[task_id]['message'] = 'Извлечение аудио...'
+            
+            logger.info(f"Начало обработки видео: {video_path}")
+            
+            # Запускаем анализ
+            # Создаем callback для обновления прогресса
+            def progress_callback(progress, message):
+                tasks[task_id]['progress'] = progress
+                tasks[task_id]['message'] = message
+                    
+            # Запускаем анализ с callback
+            result = analyze_video(video_path, use_saved=False, progress_callback=progress_callback)
+
+            tasks[task_id]['progress'] = 98
+            tasks[task_id]['message'] = 'Сохранение в базу данных...'
+
+            
+            # Получаем анализ из БД
+            analysis = Analysis.query.get(analysis_id)
+            
+            if not analysis:
+                raise Exception("Анализ не найден в БД")
+            
+            # Создаем результат анализа
+            analysis_result = AnalysisResult(
+                analysis_id=analysis_id,
+                transcript=result.get('transcript', ''),
+                transcript_with_timestamps=result.get('transcript_with_timestamps', ''),
+                feedback=result.get('feedback', '')
+            )
+            
+            # Сохраняем метрики
+            metrics = result.get('results', {})
+            if hasattr(metrics, 'to_dict'):
+                metrics = metrics.to_dict()
+            analysis_result.set_metrics(metrics)
+            
+            # Сохраняем пути к графикам (относительные пути для HTML)
+            plots_folder = Path(config.PLOTS_FOLDER)
+            if plots_folder.exists():
+                plot_files = list(plots_folder.glob('*.png'))
+                # Используем только имена файлов (без полного пути)
+                plots = [p.name for p in plot_files]
+                analysis_result.set_plots_paths(plots)
+                logger.info(f"Найдено {len(plots)} графиков")
+            
+            # Сохраняем аудио-характеристики если есть
+            if 'audio_features' in result and result['audio_features']:
+                audio_features = result['audio_features']
+                if hasattr(audio_features, 'to_dict'):
+                    audio_features = audio_features.to_dict()
+                analysis_result.set_audio_features(audio_features)
+            
+            # Обновляем статус анализа
+            analysis.status = 'completed'
+            
+            # Сохраняем в БД
+            db.session.add(analysis_result)
+            db.session.commit()
+            
+            logger.info(f"✅ Анализ {analysis_id} успешно сохранен в БД")
+            
+            tasks[task_id]['status'] = 'completed'
+            tasks[task_id]['progress'] = 100
+            tasks[task_id]['message'] = 'Анализ завершен!'
+            # Передаем только ID, URL сформируем на фронтенде
+            tasks[task_id]['analysis_id'] = analysis_id
+
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки видео: {e}", exc_info=True)
+            tasks[task_id]['status'] = 'error'
+            tasks[task_id]['message'] = f'Ошибка: {str(e)}'
+            
+            # Обновляем статус в БД
+            try:
+                analysis = Analysis.query.get(analysis_id)
+                if analysis:
+                    analysis.status = 'error'
+                    db.session.commit()
+            except Exception as db_error:
+                logger.error(f"Ошибка обновления статуса в БД: {db_error}")
+
+
+
+
+@app.route('/processing/<task_id>')
+@login_required
+def processing(task_id):
+    """Страница обработки видео"""
+    return render_template('processing.html', task_id=task_id)
+
+
+@app.route('/status/<task_id>')
+@login_required
+def status(task_id):
+    """API для проверки статуса обработки"""
+    task = tasks.get(task_id, {'status': 'not_found'})
+    return jsonify(task)
+
+
+@app.route('/static/plots/<filename>')
+@login_required
+def serve_plot(filename):
+    """Отдача графиков"""
+    return send_from_directory(config.PLOTS_FOLDER, filename)
+
+@app.route('/analysis/<int:analysis_id>/delete', methods=['POST'])
+@login_required
 def delete_analysis(analysis_id):
-    """Удаление анализа из истории"""
+    """Удаление анализа"""
+    analysis = Analysis.query.get_or_404(analysis_id)
+    
+    # Проверка прав доступа
+    if analysis.user_id != current_user.id:
+        logger.warning(f"Попытка удаления чужого анализа: user={current_user.id}, analysis={analysis_id}")
+        flash('❌ Доступ запрещен', 'danger')
+        return redirect(url_for('history'))
+    
     try:
-        analysis_path = Path(config.RESULTS_FOLDER) / analysis_id
-        if analysis_path.exists():
-            import shutil
-            shutil.rmtree(analysis_path)
-            return jsonify({'success': True, 'message': 'Анализ удален'})
-        else:
-            return jsonify({'error': 'Анализ не найден'}), 404
+        # Удаляем видео файл если существует
+        if analysis.video_path and os.path.exists(analysis.video_path):
+            try:
+                os.remove(analysis.video_path)
+                logger.info(f"Удален видео файл: {analysis.video_path}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить видео файл: {e}")
+        
+        # Удаляем связанные графики если есть результат
+        if analysis.result:
+            plots = analysis.result.get_plots_paths()
+            if plots:
+                plots_folder = Path(config.PLOTS_FOLDER)
+                for plot_name in plots:
+                    plot_path = plots_folder / plot_name
+                    if plot_path.exists():
+                        try:
+                            os.remove(plot_path)
+                            logger.info(f"Удален график: {plot_name}")
+                        except Exception as e:
+                            logger.warning(f"Не удалось удалить график {plot_name}: {e}")
+        
+        # Удаляем связанные записи прогресса
+        UserProgress.query.filter_by(analysis_id=analysis_id).delete()
+        
+        # Удаляем результат анализа (если есть)
+        if analysis.result:
+            db.session.delete(analysis.result)
+        
+        # Удаляем сам анализ
+        db.session.delete(analysis)
+        db.session.commit()
+        
+        flash('✅ Анализ успешно удален', 'success')
+        logger.info(f"Удален анализ {analysis_id} пользователя {current_user.id}")
+        
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        db.session.rollback()
+        logger.error(f"Ошибка удаления анализа: {e}", exc_info=True)
+        flash('❌ Ошибка при удалении анализа', 'danger')
+    
+    return redirect(url_for('history'))
+
+
+@app.route('/analysis/<int:analysis_id>/trainer')
+@login_required
+def trainer(analysis_id):
+    """Тренажер для конкретного анализа"""
+    from trainer import select_exercises_for_metrics, generate_ai_training_plan, get_user_progress_for_analysis
+    
+    # Получаем анализ
+    analysis = Analysis.query.get_or_404(analysis_id)
+    
+    # Проверка прав доступа
+    if analysis.user_id != current_user.id:
+        logger.warning(f"Попытка доступа к чужому тренажеру: user={current_user.id}, analysis={analysis_id}")
+        flash('❌ Доступ запрещен', 'danger')
+        return redirect(url_for('history'))
+    
+    # Проверяем что анализ завершен
+    if analysis.status != 'completed':
+        flash('⚠️ Анализ еще не завершен. Дождитесь окончания обработки.', 'warning')
+        return redirect(url_for('history'))
+    
+    # Получаем результаты
+    result = analysis.result
+    if not result:
+        flash('❌ Результаты анализа не найдены', 'danger')
+        return redirect(url_for('history'))
+    
+    # Получаем метрики
+    metrics = result.get_metrics()
+    
+    # Подбираем упражнения
+    exercises = select_exercises_for_metrics(metrics, limit=7)
+    
+    if not exercises:
+        flash('⚠️ Не удалось подобрать упражнения. Попробуйте позже.', 'warning')
+        return redirect(url_for('results', analysis_id=analysis_id))
+    
+    # Генерируем план от AI
+    try:
+        ai_plan = generate_ai_training_plan(
+            transcript=result.transcript or "",
+            metrics=metrics,
+            exercises=exercises
+        )
+        ai_plan_html = markdown_to_html(ai_plan)
+    except Exception as e:
+        logger.error(f"Ошибка генерации плана: {e}")
+        ai_plan_html = "<p>Не удалось сгенерировать план. Используйте упражнения ниже.</p>"
+    
+    # Получаем прогресс пользователя
+    completed_exercises = get_user_progress_for_analysis(current_user.id, analysis_id)
+    completed_ids = [p.exercise_id for p in completed_exercises]
+    
+    return render_template('trainer.html',
+                         analysis=analysis,
+                         metrics=metrics,
+                         exercises=exercises,
+                         ai_plan=ai_plan_html,
+                         completed_ids=completed_ids)
+
+
+@app.route('/exercise/<int:exercise_id>/complete', methods=['POST'])
+@login_required
+def complete_exercise(exercise_id):
+    """Отметить упражнение как выполненное"""
+    from trainer import mark_exercise_completed
+    
+    # Получаем analysis_id из формы
+    analysis_id = request.form.get('analysis_id')
+    notes = request.form.get('notes', '')
+    
+    if not analysis_id:
+        return jsonify({'success': False, 'error': 'analysis_id не указан'}), 400
+    
+    try:
+        analysis_id = int(analysis_id)
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Неверный analysis_id'}), 400
+    
+    # Проверяем что анализ принадлежит пользователю
+    analysis = Analysis.query.get(analysis_id)
+    if not analysis or analysis.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'Доступ запрещен'}), 403
+    
+    # Отмечаем упражнение
+    success = mark_exercise_completed(
+        user_id=current_user.id,
+        analysis_id=analysis_id,
+        exercise_id=exercise_id,
+        notes=notes
+    )
+    
+    if success:
+        return jsonify({'success': True, 'message': '✅ Упражнение отмечено!'})
+    else:
+        return jsonify({'success': False, 'error': 'Ошибка сохранения'}), 500
+    
+@app.route('/progress')
+@login_required
+def progress():
+    """Страница прогресса и статистики пользователя"""
+    
+    # Получаем статистику
+    stats = current_user.get_statistics()
+    
+    # Получаем временную линию для графиков
+    timeline = current_user.get_progress_timeline()
+    
+    # Получаем рекомендации
+    suggestions = current_user.get_improvement_suggestions()
+    
+    # Последние выполненные упражнения
+    recent_progress = UserProgress.query.filter_by(user_id=current_user.id)\
+                                        .order_by(UserProgress.completed_at.desc())\
+                                        .limit(5)\
+                                        .all()
+    
+    return render_template('progress.html',
+                         stats=stats,
+                         timeline=timeline,
+                         suggestions=suggestions,
+                         recent_progress=recent_progress)
+
+@app.route('/profile')
+@login_required
+def profile():
+    """Профиль пользователя"""
+    
+    # Получаем статистику
+    stats = current_user.get_statistics()
+    
+    # Последние 5 анализов
+    recent_analyses = current_user.analyses.order_by(Analysis.created_at.desc()).limit(5).all()
+    
+    return render_template('profile.html',
+                         stats=stats,
+                         recent_analyses=recent_analyses)
+
+
+@app.route('/profile/edit', methods=['GET', 'POST'])
+@login_required
+def edit_profile():
+    """Редактирование профиля"""
+    from forms import RegistrationForm
+    
+    if request.method == 'POST':
+        new_username = request.form.get('username', '').strip()
+        
+        if new_username and len(new_username) >= 2:
+            current_user.username = new_username
+            db.session.commit()
+            flash('✅ Профиль успешно обновлен!', 'success')
+            logger.info(f"Пользователь {current_user.id} обновил профиль")
+        else:
+            flash('❌ Имя должно быть минимум 2 символа', 'danger')
+        
+        return redirect(url_for('profile'))
+    
+    return redirect(url_for('profile'))
+
+
+# ============= ОБРАБОТЧИКИ ОШИБОК =============
+
+@app.errorhandler(404)
+def not_found_error(error):
+    """Обработка 404 ошибки"""
+    return render_template('errors/404.html'), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Обработка 500 ошибки"""
+    db.session.rollback()
+    logger.error(f"Internal server error: {error}")
+    return render_template('errors/500.html'), 500
+
+
+@app.errorhandler(403)
+def forbidden_error(error):
+    """Обработка 403 ошибки"""
+    return render_template('errors/403.html'), 403
+
 
 if __name__ == '__main__':
-    # Создаем необходимые директории
-    for folder in [config.UPLOAD_FOLDER, config.PLOTS_FOLDER, 
-                   config.AUDIO_FOLDER, config.TRANSCRIPTS_FOLDER, config.RESULTS_FOLDER]:
-        Path(folder).mkdir(parents=True, exist_ok=True)
-    
-    logger.info("=" * 50)
-    logger.info("🚀 ЗАПУСК AI-ТРЕНЕРА ВЫСТУПЛЕНИЙ")
-    logger.info("=" * 50)
-    logger.info(f"📁 Папка загрузок: {config.UPLOAD_FOLDER}")
-    logger.info(f"📊 Папка графиков: {config.PLOTS_FOLDER}")
-    logger.info(f"🎵 Папка аудио: {config.AUDIO_FOLDER}")
-    logger.info(f"📝 Папка результатов: {config.RESULTS_FOLDER}")
-    logger.info(f"🤖 GigaChat: {'ВКЛ' if config.SEND_TO_GIGACHAT else 'ВЫКЛ'}")
-    logger.info("=" * 50)
-    
-    app.run(host='0.0.0.0', port=5000, debug=config.DEBUG, threaded=True)
+    app.run(debug=config.DEBUG, host='0.0.0.0', port=5000)
