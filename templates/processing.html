@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Обработка видео - AI Тренер Выступлений</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            color: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .processing-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 3rem;
+            max-width: 600px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+        }
+        
+        .progress-container {
+            margin: 2rem 0;
+        }
+        
+        .progress {
+            height: 25px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            background: linear-gradient(90deg, #2E86AB, #4ECDC4);
+            transition: width 0.5s ease;
+        }
+        
+        .steps {
+            text-align: left;
+            margin-top: 2rem;
+        }
+        
+        .step {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        
+        .step.active {
+            background: rgba(46, 134, 171, 0.2);
+            border-left: 4px solid #2E86AB;
+        }
+        
+        .step.completed {
+            background: rgba(6, 214, 160, 0.1);
+            color: #06D6A0;
+        }
+        
+        .step-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 1rem;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .step.active .step-icon {
+            background: #2E86AB;
+        }
+        
+        .step.completed .step-icon {
+            background: #06D6A0;
+        }
+        
+        .loading-animation {
+            margin: 2rem 0;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #2E86AB;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="processing-card">
+        <div class="loading-animation">
+            <div class="spinner"></div>
+        </div>
+        
+        <h3 class="mb-3">
+            <i class="fas fa-cogs me-2"></i>
+            Обработка видео
+        </h3>
+        
+        <p class="text-muted mb-4" id="statusMessage">
+            {{ message|default("Начинаем анализ...") }}
+        </p>
+        
+        <div class="progress-container">
+            <div class="d-flex justify-content-between mb-2">
+                <span id="progressText">Прогресс:</span>
+                <span id="progressPercent">{{ progress|default(0) }}%</span>
+            </div>
+            <div class="progress">
+                <div id="progressBar" class="progress-bar" 
+                     style="width: {{ progress|default(0) }}%"></div>
+            </div>
+        </div>
+        
+        <div class="steps">
+            <div class="step" id="step1">
+                <div class="step-icon">
+                    <i class="fas fa-music"></i>
+                </div>
+                <div>
+                    <div class="step-title">Извлечение аудио</div>
+                    <small class="text-muted step-desc">Извлечение звука из видео</small>
+                </div>
+            </div>
+            
+            <div class="step" id="step2">
+                <div class="step-icon">
+                    <i class="fas fa-language"></i>
+                </div>
+                <div>
+                    <div class="step-title">Транскрибация</div>
+                    <small class="text-muted step-desc">Преобразование речи в текст</small>
+                </div>
+            </div>
+            
+            <div class="step" id="step3">
+                <div class="step-icon">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <div>
+                    <div class="step-title">Анализ речи</div>
+                    <small class="text-muted step-desc">Анализ темпа, пауз и повторов</small>
+                </div>
+            </div>
+            
+            <div class="step" id="step4">
+                <div class="step-icon">
+                    <i class="fas fa-wave-square"></i>
+                </div>
+                <div>
+                    <div class="step-title">Анализ аудио</div>
+                    <small class="text-muted step-desc">Громкость и интонация</small>
+                </div>
+            </div>
+            
+            <div class="step" id="step5">
+                <div class="step-icon">
+                    <i class="fas fa-chart-bar"></i>
+                </div>
+                <div>
+                    <div class="step-title">Генерация графиков</div>
+                    <small class="text-muted step-desc">Создание визуализаций</small>
+                </div>
+            </div>
+            
+            <div class="step" id="step6">
+                <div class="step-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div>
+                    <div class="step-title">Фидбэк от AI</div>
+                    <small class="text-muted step-desc">Получение рекомендаций</small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-4 text-muted small">
+            <i class="fas fa-info-circle me-1"></i>
+            Это может занять от 30 секунд до нескольких минут в зависимости от длины видео
+        </div>
+        
+        <div class="mt-4">
+            <button onclick="window.location.href='/'" class="btn btn-outline-light btn-sm">
+                <i class="fas fa-times me-1"></i> Отменить
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const taskId = "{{ task_id }}";
+        let checkInterval;
+        
+        // Обновляем шаги в зависимости от прогресса
+        function updateSteps(progress) {
+            const steps = document.querySelectorAll('.step');
+            
+            // Сбрасываем все шаги
+            steps.forEach(step => {
+                step.classList.remove('active', 'completed');
+            });
+            
+            // Определяем активные шаги
+            if (progress >= 10) {
+                document.getElementById('step1').classList.add('completed');
+            }
+            if (progress >= 25) {
+                document.getElementById('step2').classList.add('completed');
+            }
+            if (progress >= 40) {
+                document.getElementById('step3').classList.add('completed');
+            }
+            if (progress >= 55) {
+                document.getElementById('step4').classList.add('completed');
+            }
+            if (progress >= 70) {
+                document.getElementById('step5').classList.add('completed');
+            }
+            if (progress >= 85) {
+                document.getElementById('step6').classList.add('completed');
+            }
+            
+            // Определяем текущий активный шаг
+            if (progress < 25) {
+                document.getElementById('step1').classList.add('active');
+            } else if (progress < 40) {
+                document.getElementById('step2').classList.add('active');
+            } else if (progress < 55) {
+                document.getElementById('step3').classList.add('active');
+            } else if (progress < 70) {
+                document.getElementById('step4').classList.add('active');
+            } else if (progress < 85) {
+                document.getElementById('step5').classList.add('active');
+            } else if (progress < 100) {
+                document.getElementById('step6').classList.add('active');
+            }
+        }
+        
+        // Проверяем статус задачи
+        function checkStatus() {
+            fetch(`/status/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Ошибка:', data.error);
+                        return;
+                    }
+                    
+                    // Обновляем прогресс
+                    const progress = data.progress || 0;
+                    document.getElementById('progressBar').style.width = `${progress}%`;
+                    document.getElementById('progressPercent').textContent = `${progress}%`;
+                    
+                    // Обновляем сообщение
+                    if (data.message) {
+                        document.getElementById('statusMessage').textContent = data.message;
+                    }
+                    
+                    // Обновляем шаги
+                    updateSteps(progress);
+                    
+                    // Если задача завершена, перенаправляем на результаты
+                    if (data.status === 'completed') {
+                        clearInterval(checkInterval);
+                        setTimeout(() => {
+                            window.location.href = `/results/${taskId}`;
+                        }, 1000);
+                    }
+                    
+                    // Если задача провалилась, показываем ошибку
+                    if (data.status === 'failed') {
+                        clearInterval(checkInterval);
+                        document.getElementById('statusMessage').innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                Ошибка обработки: ${data.error || 'Неизвестная ошибка'}
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка проверки статуса:', error);
+                });
+        }
+        
+        // Начинаем проверку статуса
+        document.addEventListener('DOMContentLoaded', function() {
+            // Инициализируем шаги
+            updateSteps({{ progress|default(0) }});
+            
+            // Запускаем периодическую проверку
+            checkInterval = setInterval(checkStatus, 2000);
+            
+            // Первая проверка
+            checkStatus();
+        });
+        
+        // Очистка интервала при закрытии страницы
+        window.addEventListener('beforeunload', function() {
+            if (checkInterval) {
+                clearInterval(checkInterval);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Основные зависимости (указываем без версий для автоматического разрешения)
+torch
+torchaudio
+openai-whisper
+Flask
+python-dotenv
+numpy
+matplotlib
+librosa
+ffmpeg-python
+gigachat
+requests
+tqdm
+soundfile
+scipy
+pandas
+coloredlogs
+dataclasses-json
+typing-extensions

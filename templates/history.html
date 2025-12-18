@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>История анализов - AI Тренер Выступлений</title>
+    
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --primary-color: #2E86AB;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            color: #f8f9fa;
+            min-height: 100vh;
+            padding-bottom: 50px;
+        }
+        
+        .history-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .history-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            border-color: var(--primary-color);
+        }
+        
+        .metric-badge {
+            font-size: 0.85rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #aaa;
+        }
+        
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-success { background-color: #28a745; }
+        .status-warning { background-color: #ffc107; }
+        .status-danger { background-color: #dc3545; }
+        .status-info { background-color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <!-- Навигация -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-robot me-2"></i>
+                AI Тренер Выступлений
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i> Главная
+                </a>
+                <a class="nav-link active" href="/history">
+                    <i class="fas fa-history me-1"></i> История
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Заголовок -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="h2 mb-1">
+                    <i class="fas fa-history text-primary me-2"></i>
+                    История анализов
+                </h1>
+                <p class="text-muted mb-0">
+                    Всего анализов: {{ history|length }}
+                </p>
+            </div>
+            <div>
+                <a href="/" class="btn btn-primary">
+                    <i class="fas fa-plus me-1"></i> Новый анализ
+                </a>
+            </div>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card bg-dark border-secondary">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <i class="fas fa-search"></i>
+                                    </span>
+                                    <input type="text" class="form-control" id="searchInput" 
+                                           placeholder="Поиск по названию видео...">
+                                </div>
+                            </div>
+                            <div class="col-md-6 mt-2 mt-md-0">
+                                <div class="d-flex justify-content-end">
+                                    <button class="btn btn-outline-light me-2" onclick="clearHistory()">
+                                        <i class="fas fa-trash me-1"></i> Очистить историю
+                                    </button>
+                                    <button class="btn btn-success" onclick="exportAll()">
+                                        <i class="fas fa-download me-1"></i> Экспорт всех
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Список анализов -->
+        {% if history %}
+        <div class="row">
+            <div class="col-12">
+                <div class="list-group" id="historyList">
+                    {% for item in history %}
+                    <div class="history-card" data-id="{{ item.id }}">
+                        <div class="row align-items-center">
+                            <div class="col-md-4">
+                                <h5 class="mb-1">
+                                    <i class="fas fa-video me-2 text-info"></i>
+                                    {{ item.video_name }}
+                                </h5>
+                                <small class="text-muted">
+                                    <i class="far fa-clock me-1"></i>
+                                    {{ item.date }}
+                                </small>
+                                <div class="mt-2">
+                                    <span class="status-indicator status-{{ item.status_color }}"></span>
+                                    <small class="text-muted">
+                                        {% if item.status_color == 'success' %}
+                                            Отличное выступление
+                                        {% elif item.status_color == 'warning' %}
+                                            Есть области для улучшения
+                                        {% elif item.status_color == 'danger' %}
+                                            Требует внимания
+                                        {% else %}
+                                            Проанализировано
+                                        {% endif %}
+                                    </small>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-5">
+                                <div class="row">
+                                    <div class="col-6 col-md-3 text-center mb-2 mb-md-0">
+                                        <span class="badge metric-badge badge-tempo" 
+                                              title="Средний темп речи">
+                                            <i class="fas fa-tachometer-alt me-1"></i>
+                                            {{ item.tempo }}
+                                        </span>
+                                    </div>
+                                    <div class="col-6 col-md-3 text-center mb-2 mb-md-0">
+                                        <span class="badge metric-badge badge-pauses"
+                                              title="Длинные паузы">
+                                            <i class="fas fa-pause me-1"></i>
+                                            {{ item.pauses }}
+                                        </span>
+                                    </div>
+                                    <div class="col-6 col-md-3 text-center">
+                                        <span class="badge metric-badge badge-fillers"
+                                              title="Слова-паразиты">
+                                            <i class="fas fa-comment-slash me-1"></i>
+                                            {{ item.fillers }}
+                                        </span>
+                                    </div>
+                                    <div class="col-6 col-md-3 text-center">
+                                        <span class="badge metric-badge badge-repetitions"
+                                              title="Повторы">
+                                            <i class="fas fa-redo me-1"></i>
+                                            {{ item.repetitions }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        Длительность: {{ item.duration }}
+                                    </small>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3 text-end">
+                                <div class="btn-group">
+                                    <a href="/results/{{ item.id }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye me-1"></i> Просмотр
+                                    </a>
+                                    <button class="btn btn-sm btn-outline-success" 
+                                            onclick="exportAnalysis('{{ item.id }}')">
+                                        <i class="fas fa-download me-1"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" 
+                                            onclick="deleteAnalysis('{{ item.id }}', this)">
+                                        <i class="fas fa-trash me-1"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <!-- Пагинация -->
+                {% if history|length > 10 %}
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <nav aria-label="Навигация по истории">
+                            <ul class="pagination justify-content-center">
+                                <li class="page-item disabled">
+                                    <a class="page-link" href="#" tabindex="-1">Предыдущая</a>
+                                </li>
+                                <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                                <li class="page-item"><a class="page-link" href="#">2</a></li>
+                                <li class="page-item"><a class="page-link" href="#">3</a></li>
+                                <li class="page-item">
+                                    <a class="page-link" href="#">Следующая</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <!-- Состояние "пусто" -->
+        <div class="row">
+            <div class="col-12">
+                <div class="empty-state">
+                    <i class="fas fa-history"></i>
+                    <h3>История анализов пуста</h3>
+                    <p class="lead">Вы еще не проводили анализ выступлений.</p>
+                    <p class="text-muted">Загрузите свое первое видео, чтобы начать!</p>
+                    <a href="/" class="btn btn-primary btn-lg mt-3">
+                        <i class="fas fa-upload me-2"></i> Загрузить первое видео
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Поиск по истории
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const items = document.querySelectorAll('.history-card');
+            
+            items.forEach(item => {
+                const title = item.querySelector('h5').textContent.toLowerCase();
+                if (title.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+        
+        // Удаление анализа
+        function deleteAnalysis(analysisId, button) {
+            if (!confirm('Вы уверены, что хотите удалить этот анализ? Это действие нельзя отменить.')) {
+                return;
+            }
+            
+            fetch(`/delete/${analysisId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Удаляем элемент из DOM
+                    button.closest('.history-card').remove();
+                    
+                    // Показываем уведомление
+                    showNotification('Анализ успешно удален', 'success');
+                    
+                    // Если список пуст, показываем состояние "пусто"
+                    const items = document.querySelectorAll('.history-card');
+                    if (items.length === 0) {
+                        location.reload();
+                    }
+                } else {
+                    showNotification('Ошибка при удалении: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                showNotification('Ошибка сети: ' + error, 'danger');
+            });
+        }
+        
+        // Экспорт одного анализа
+        function exportAnalysis(analysisId) {
+            fetch(`/api/analysis/${analysisId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `speech-analysis-${analysisId}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    showNotification('Анализ экспортирован', 'success');
+                })
+                .catch(error => {
+                    showNotification('Ошибка при экспорте', 'danger');
+                });
+        }
+        
+        // Экспорт всех анализов
+        function exportAll() {
+            const allData = {
+                export_date: new Date().toISOString(),
+                total_analyses: {{ history|length }},
+                analyses: []
+            };
+            
+            // Собираем данные из всех анализов (в реальности нужно делать запросы к серверу)
+            showNotification('Экспорт начат...', 'info');
+            
+            // В реальном приложении здесь бы делались запросы к API для каждого анализа
+            // Для упрощения экспортируем только метаданные
+            const analyses = [];
+            {% for item in history %}
+            analyses.push({
+                id: '{{ item.id }}',
+                video_name: '{{ item.video_name }}',
+                date: '{{ item.date }}',
+                metrics: {{ item.metrics|tojson }}
+            });
+            {% endfor %}
+            
+            allData.analyses = analyses;
+            
+            const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `all-analyses-${new Date().getTime()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showNotification('Все анализы экспортированы', 'success');
+        }
+        
+        // Очистка всей истории
+        function clearHistory() {
+            if (!confirm('ВНИМАНИЕ: Вы уверены, что хотите удалить ВСЮ историю анализов?\nЭто действие нельзя отменить.')) {
+                return;
+            }
+            
+            showNotification('Очистка истории...', 'info');
+            
+            // Удаляем все папки с результатами
+            fetch('/api/clear-history', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('История успешно очищена', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification('Ошибка при очистке: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                showNotification('Ошибка сети: ' + error, 'danger');
+            });
+        }
+        
+        // Функция для показа уведомлений
+        function showNotification(message, type = 'info') {
+            // Создаем элемент уведомления
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 9999;
+                min-width: 300px;
+                max-width: 400px;
+            `;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Автоматическое скрытие через 3 секунды
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 3000);
+        }
+        
+        // Сортировка по дате
+        function sortByDate() {
+            const container = document.getElementById('historyList');
+            const items = Array.from(container.querySelectorAll('.history-card'));
+            
+            items.sort((a, b) => {
+                const dateA = new Date(a.querySelector('small').textContent);
+                const dateB = new Date(b.querySelector('small').textContent);
+                return dateB - dateA; // Новые сверху
+            });
+            
+            // Переставляем элементы
+            items.forEach(item => container.appendChild(item));
+        }
+        
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            sortByDate();
+        });
+    </script>
+</body>
+</html>
