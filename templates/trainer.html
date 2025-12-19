@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}Тренажер - AI Тренер{% endblock %}
+
+{% block extra_css %}
+<style>
+    .exercise-card {
+        transition: all 0.3s ease;
+    }
+    .exercise-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+    }
+    .badge {
+        font-size: 0.85rem;
+    }
+    .ai-plan-content h1 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    }
+    .ai-plan-content h2 {
+        font-size: 1.25rem;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        color: #2c3e50;
+    }
+    .ai-plan-content p {
+        margin-bottom: 0.75rem;
+        line-height: 1.6;
+    }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Заголовок -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1><i class="fas fa-dumbbell"></i> Персональный тренажер</h1>
+            <p class="text-muted">Упражнения подобраны на основе твоего анализа</p>
+        </div>
+    </div>
+
+    <!-- НОВОЕ: Объяснение выбора упражнений -->
+    {% if metrics %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h5><i class="fas fa-info-circle"></i> 📊 Почему эти упражнения?</h5>
+                <p class="mb-2">На основе твоего последнего анализа я подобрал упражнения для работы над:</p>
+                <ul class="mb-0">
+                    {% if metrics.avg_tempo and (metrics.avg_tempo > 5 or metrics.avg_tempo < 2) %}
+                    <li><strong>Темп речи:</strong> 
+                        {% if metrics.avg_tempo > 5 %}
+                            Ты говоришь слишком быстро ({{ metrics.avg_tempo|round(1) }} слов/сек). Нужно замедлиться.
+                        {% else %}
+                            Ты говоришь слишком медленно ({{ metrics.avg_tempo|round(1) }} слов/сек). Нужно ускориться.
+                        {% endif %}
+                    </li>
+                    {% endif %}
+                    
+                    {% if metrics.pauses_count and metrics.pauses_count > 5 %}
+                    <li><strong>Паузы:</strong> Обнаружено {{ metrics.pauses_count }} длинных пауз. Работай над плавностью речи.</li>
+                    {% endif %}
+                    
+                    {% if metrics.filler_words_count and metrics.filler_words_count > 7 %}
+                    <li><strong>Слова-паразиты:</strong> Найдено {{ metrics.filler_words_count }} слов-паразитов ("эээ", "нуу"). Заменяй на осмысленные паузы.</li>
+                    {% endif %}
+                    
+                    {% if metrics.repetitions_count and metrics.repetitions_count > 5 %}
+                    <li><strong>Повторы слов:</strong> {{ metrics.repetitions_count }} слов повторяются слишком часто. Используй синонимы.</li>
+                    {% endif %}
+                    
+                    <!-- НОВОЕ: Аудио метрики -->
+                    {% if metrics.audio_features %}
+                    {% set audio = metrics.audio_features %}
+                    
+                    {% if audio.energy_score and audio.energy_score < 40 %}
+                    <li><strong>🎤 Энергия речи:</strong> Очень низкая ({{ audio.energy_score|round(1) }}/100). Твоя речь звучит монотонно и тихо. Практикуй дыхание и интонацию!</li>
+                    {% elif audio.energy_score and audio.energy_score < 60 %}
+                    <li><strong>🎤 Энергия речи:</strong> Средняя ({{ audio.energy_score|round(1) }}/100). Можно добавить больше эмоций и вариации.</li>
+                    {% endif %}
+                    
+                    {% if audio.avg_volume and audio.avg_volume < 30 %}
+                    <li><strong>🔊 Громкость:</strong> Слишком тихий голос ({{ audio.avg_volume|round(1) }}%). Работай над проекцией голоса и дыханием диафрагмой.</li>
+                    {% elif audio.avg_volume and audio.avg_volume < 50 %}
+                    <li><strong>🔊 Громкость:</strong> Тихий голос ({{ audio.avg_volume|round(1) }}%). Попробуй говорить увереннее.</li>
+                    {% endif %}
+                    
+                    {% if audio.pitch_variance and audio.pitch_variance < 200 %}
+                    <li><strong>🎵 Интонация:</strong> Монотонная речь. Меняй высоту голоса для создания интереса!</li>
+                    {% endif %}
+                    
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- План тренировок на неделю -->
+    {% if ai_plan %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-calendar-week"></i> План тренировок на неделю</h5>
+                </div>
+                <div class="card-body">
+                    <div class="ai-plan-content">{{ ai_plan|safe }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+
+    <!-- Упражнения -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <h4><i class="fas fa-tasks"></i> Рекомендованные упражнения</h4>
+        </div>
+    </div>
+
+    <div class="row">
+        {% if exercises %}
+        {% for exercise in exercises %}
+        <div class="col-md-6 mb-4">
+            <div class="card exercise-card h-100 border-{% if exercise.difficulty == 'beginner' %}success{% elif exercise.difficulty == 'intermediate' %}warning{% else %}danger{% endif %}">
+                <!-- Заголовок с категорией и сложностью -->
+                <div class="card-header bg-light">
+                    <span class="badge bg-{% if exercise.category == 'breathing' %}primary{% elif exercise.category == 'intonation' %}info{% elif exercise.category == 'tempo' %}warning{% elif exercise.category == 'diction' %}success{% elif exercise.category == 'pauses' %}secondary{% elif exercise.category == 'filler_words' %}danger{% else %}dark{% endif %}">
+                        {% if exercise.category == 'breathing' %}
+                            🫁 Дыхание
+                        {% elif exercise.category == 'intonation' %}
+                            🎵 Интонация
+                        {% elif exercise.category == 'tempo' %}
+                            ⏱️ Темп
+                        {% elif exercise.category == 'pauses' %}
+                            ⏸️ Паузы
+                        {% elif exercise.category == 'filler_words' %}
+                            💬 Слова-паразиты
+                        {% elif exercise.category == 'diction' %}
+                            🗣️ Дикция
+                        {% elif exercise.category == 'practice' %}
+                            📝 Практика
+                        {% elif exercise.category == 'repetitions' %}
+                            🔁 Повторы
+                        {% else %}
+                            📝 {{ exercise.category }}
+                        {% endif %}
+                    </span>
+                    <span class="badge bg-{% if exercise.difficulty == 'beginner' %}success{% elif exercise.difficulty == 'intermediate' %}warning{% else %}danger{% endif %} float-end">
+                        {% if exercise.difficulty == 'beginner' %}
+                            🟢 Новичок
+                        {% elif exercise.difficulty == 'intermediate' %}
+                            🟡 Средний
+                        {% else %}
+                            🔴 Продвинутый
+                        {% endif %}
+                    </span>
+                </div>
+                
+                <div class="card-body">
+                    <h5 class="card-title">{{ exercise.title }}</h5>
+                    <p class="card-text text-muted">{{ exercise.description }}</p>
+                    
+                    <div class="mb-3">
+                        <small class="text-muted">
+                            <i class="far fa-clock"></i> {{ exercise.duration_minutes }} минут
+                        </small>
+                    </div>
+                    
+                    <!-- Кнопка инструкций -->
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#instructions-{{ exercise.id }}">
+                        <i class="fas fa-list"></i> Показать инструкции
+                    </button>
+                    
+                    <!-- Свернутые инструкции -->
+                    <div class="collapse mt-3" id="instructions-{{ exercise.id }}">
+                        <div class="alert alert-light">
+                            <strong>📋 Инструкции:</strong>
+                            <p style="white-space: pre-line;">{{ exercise.instructions }}</p>
+                            
+                            {% if exercise.practice_text %}
+                            <hr>
+                            <strong>📝 Текст для практики:</strong>
+                            <p class="fst-italic">"{{ exercise.practice_text }}"</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- Кнопка "Выполнено" -->
+                    <form method="POST" action="{{ url_for('complete_exercise', analysis_id=analysis_id, exercise_id=exercise.id) }}" class="mt-3">
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="fas fa-check"></i> Отметить как выполненное
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="col-12">
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                Упражнения не найдены. Попробуй загрузить видео для анализа.
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Кнопка назад -->
+    <div class="row mt-4 mb-4">
+        <div class="col-12 text-center">
+            <a href="{{ url_for('results', analysis_id=analysis_id) }}" class="btn btn-secondary btn-lg">
+                <i class="fas fa-arrow-left"></i> Назад к результатам
+            </a>
+            <a href="{{ url_for('progress') }}" class="btn btn-outline-primary btn-lg">
+                <i class="fas fa-chart-line"></i> Мой прогресс
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Автоматическое скрытие уведомлений через 3 секунды
+document.addEventListener('DOMContentLoaded', function() {
+    const alerts = document.querySelectorAll('.alert-dismissible');
+    alerts.forEach(function(alert) {
+        setTimeout(function() {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }, 3000);
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Личный кабинет - AI Тренер{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            👋 Привет, {{ current_user.username }}!
+        </h1>
+        
+        <!-- Статистика -->
+        {% set total_analyses = current_user.analyses.count() %}
+        {% set completed_analyses = current_user.analyses.filter_by(status='completed').count() %}
+        
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-video fa-3x mb-3"></i>
+                        <h3>{{ total_analyses }}</h3>
+                        <p class="mb-0">Всего анализов</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-check-circle fa-3x mb-3"></i>
+                        <h3>{{ completed_analyses }}</h3>
+                        <p class="mb-0">Завершено</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-calendar-alt fa-3x mb-3"></i>
+                        <h3>{{ (current_user.created_at | string)[:10] }}</h3>
+                        <p class="mb-0">Регистрация</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Быстрые действия -->
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <i class="fas fa-upload fa-3x text-primary mb-3"></i>
+                        <h5>Загрузить видео</h5>
+                        <p class="text-muted">Начните новый анализ</p>
+                        <a href="{{ url_for('index') }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Загрузить
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <i class="fas fa-history fa-3x text-success mb-3"></i>
+                        <h5>История</h5>
+                        <p class="text-muted">Все ваши анализы</p>
+                        <a href="{{ url_for('history') }}" class="btn btn-success">
+                            <i class="fas fa-list"></i> Смотреть
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <i class="fas fa-dumbbell fa-3x text-warning mb-3"></i>
+                        <h5>Упражнения</h5>
+                        <p class="text-muted">{{ total_exercises if total_exercises else 0 }} упражнений доступно</p>
+                        {% if analyses %}
+                            <a href="{{ url_for('trainer', analysis_id=analyses[0].id) }}" class="btn btn-warning">
+                                <i class="fas fa-dumbbell"></i> Открыть
+                            </a>
+                        {% else %}
+                            <button class="btn btn-secondary" disabled>
+                                Сначала загрузите видео
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Последние анализы -->
+        {% if analyses %}
+        <h3 class="mb-3">
+            <i class="fas fa-clock"></i> Последние анализы
+        </h3>
+        
+        <div class="list-group">
+            {% for analysis in analyses %}
+            <a href="{{ url_for('results', analysis_id=analysis.id) if analysis.status == 'completed' else '#' }}" 
+               class="list-group-item list-group-item-action {{ 'disabled' if analysis.status != 'completed' else '' }}">
+                <div class="d-flex w-100 justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-1">
+                            <i class="fas fa-video text-primary"></i>
+                            {{ analysis.video_filename }}
+                        </h5>
+                        <p class="mb-1">
+                            <span class="badge bg-info">
+                                {% if analysis.scenario_type == 'academic' %}Академические работы
+                                {% elif analysis.scenario_type == 'project' %}Защита проекта
+                                {% elif analysis.scenario_type == 'hackathon' %}Хакатон/питч
+                                {% elif analysis.scenario_type == 'public' %}Публичное выступление
+                                {% elif analysis.scenario_type == 'custom' %}Пользовательские критерии
+                                {% else %}{{ analysis.scenario_type }}{% endif %}
+                            </span>
+                            <span class="badge bg-{{ 'success' if analysis.status == 'completed' else 'warning' if analysis.status == 'processing' else 'danger' }}">
+                                {{ analysis.status }}
+                            </span>
+                        </p>
+                        
+                        {% if analysis.status == 'completed' and analysis.result %}
+                            {% set metrics = analysis.result.get_metrics() %}
+                            <small class="text-muted">
+                                Темп: {{ metrics.get('avg_tempo', 0)|round(1) }} слов/сек | 
+                                Паузы: {{ metrics.get('pauses_count', 0) }} | 
+                                Филлеры: {{ metrics.get('filler_words_count', 0) }}
+                            </small>
+                        {% endif %}
+                    </div>
+                    <small class="text-muted">{{ analysis.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        
+        <div class="text-center mt-3">
+            <a href="{{ url_for('history') }}" class="btn btn-outline-primary">
+                Смотреть все анализы <i class="fas fa-arrow-right"></i>
+            </a>
+        </div>
+        {% else %}
+        <div class="alert alert-secondary text-center py-5 mt-4" role="alert">
+            <i class="fas fa-inbox fa-3x mb-3 d-block"></i>
+            <h4>У вас пока нет анализов</h4>
+            <p class="text-muted">Загрузите первое видео и начните улучшать свои навыки!</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary mt-3">
+                <i class="fas fa-upload"></i> Загрузить видео
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

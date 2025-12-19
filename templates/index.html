@@ -1,0 +1,485 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - AI Тренер{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pwa-install-banner {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        gap: 15px;
+    }
+    
+    .pwa-install-banner i {
+        font-size: 2rem;
+    }
+    
+    .pwa-install-text {
+        flex: 1;
+    }
+    
+    .pwa-install-text h4 {
+        margin: 0 0 5px 0;
+        font-weight: 600;
+    }
+    
+    .pwa-install-text p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 0.95rem;
+    }
+    
+    .pwa-install-btn {
+        background: white;
+        color: #667eea;
+        border: none;
+        padding: 12px 25px;
+        border-radius: 25px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.3s;
+    }
+    
+    .pwa-install-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    
+    .pwa-install-banner.hidden {
+        display: none;
+    }
+
+    .hero-section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 4rem 0;
+        border-radius: 15px;
+        margin-bottom: 2rem;
+    }
+    .upload-zone {
+        border: 3px dashed #007bff;
+        border-radius: 15px;
+        padding: 3rem;
+        text-align: center;
+        background: #f8f9fa;
+        transition: all 0.3s;
+        cursor: pointer;
+    }
+    .upload-zone:hover {
+        background: #e9ecef;
+        border-color: #0056b3;
+    }
+    .upload-zone.dragover {
+        background: #d1ecf1;
+        border-color: #17a2b8;
+    }
+    .scenario-card {
+        transition: all 0.3s;
+        cursor: pointer;
+        border: 2px solid transparent;
+    }
+    .scenario-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .scenario-card.selected {
+        border-color: #007bff;
+        background-color: #e7f3ff;
+    }
+    .feature-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+    /* 5 колонок на строке */
+    .col-md-2-4 {
+        flex: 0 0 calc(20% - 0.75rem);
+        max-width: calc(20% - 0.75rem);
+    }
+    @media (max-width: 1200px) {
+        .col-md-2-4 {
+            flex: 0 0 calc(25% - 0.75rem);
+            max-width: calc(25% - 0.75rem);
+        }
+    }
+    @media (max-width: 768px) {
+        .col-md-2-4 {
+            flex: 0 0 calc(50% - 0.75rem);
+            max-width: calc(50% - 0.75rem);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- PWA Install Banner -->
+<div id="pwaInstallBanner" class="pwa-install-banner hidden">
+    <div>
+        <i class="fas fa-mobile-alt"></i>
+    </div>
+    <div class="pwa-install-text">
+        <h4>📱 Установить как приложение</h4>
+        <p>Используйте NeuroSpeech на любом устройстве - работает офлайн!</p>
+    </div>
+    <button class="pwa-install-btn" id="pwaInstallButtonHeader">
+        <i class="fas fa-download"></i> Установить
+    </button>
+    <button class="btn-close btn-close-white" type="button" onclick="document.getElementById('pwaInstallBanner').classList.add('hidden')"></button>
+</div>
+
+{% if current_user.is_authenticated %}
+<!-- Для авторизованных пользователей - форма загрузки -->
+
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-upload"></i> Загрузить видео
+        </h1>
+
+        <form id="uploadForm" method="POST" action="{{ url_for('analyze') }}" enctype="multipart/form-data">
+            <!-- Зона загрузки -->
+            <div class="upload-zone mb-4" id="uploadZone">
+                <input type="file" 
+                       name="video" 
+                       id="videoInput" 
+                       accept=".mp4,.avi,.mov,.mkv,.webm" 
+                       style="display: none;" 
+                       required>
+                <i class="fas fa-cloud-upload-alt feature-icon text-primary"></i>
+                <h4>Перетащите видео сюда</h4>
+                <p class="text-muted mb-3">или нажмите для выбора файла</p>
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('videoInput').click()">
+                    <i class="fas fa-folder-open"></i> Выбрать файл
+                </button>
+                <p class="text-muted small mt-3 mb-0">
+                    Поддерживаемые форматы: MP4, AVI, MOV, MKV, WebM (макс. 100 МБ)
+                </p>
+            </div>
+
+            <!-- Выбранный файл -->
+            <div id="fileInfo" class="alert alert-info" style="display: none;">
+                <i class="fas fa-file-video"></i> 
+                <strong>Выбран файл:</strong> <span id="fileName"></span>
+                <button type="button" class="btn-close float-end" onclick="clearFile()"></button>
+            </div>
+
+            <!-- Выбор сценария -->
+            <h4 class="mb-3">
+                <i class="fas fa-tasks"></i> Выберите тип выступления:
+            </h4>
+
+            <input type="hidden" name="scenario" id="scenarioInput" value="academic">
+
+            <div class="row mb-4">
+                <div class="col-md-2-4 mb-3">
+                    <div class="card scenario-card selected" data-scenario="academic">
+                        <div class="card-body text-center">
+                            <i class="fas fa-graduation-cap fa-3x text-primary mb-3"></i>
+                            <h5>Академические работы</h5>
+                            <p class="text-muted small">Защита дипломов, курсовых, диссертаций</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-2-4 mb-3">
+                    <div class="card scenario-card" data-scenario="project">
+                        <div class="card-body text-center">
+                            <i class="fas fa-project-diagram fa-3x text-success mb-3"></i>
+                            <h5>Защита проекта</h5>
+                            <p class="text-muted small">Презентация стартапа, бизнес-проекта</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-2-4 mb-3">
+                    <div class="card scenario-card" data-scenario="hackathon">
+                        <div class="card-body text-center">
+                            <i class="fas fa-rocket fa-3x text-warning mb-3"></i>
+                            <h5>Хакатон/питч</h5>
+                            <p class="text-muted small">Короткие презентации, питчинг идеи</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-2-4 mb-3">
+                    <div class="card scenario-card" data-scenario="public">
+                        <div class="card-body text-center">
+                            <i class="fas fa-microphone fa-3x text-info mb-3"></i>
+                            <h5>Публичное выступление</h5>
+                            <p class="text-muted small">Доклады, презентации, лекции</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-2-4 mb-3">
+                    <div class="card scenario-card" data-scenario="custom">
+                        <div class="card-body text-center">
+                            <i class="fas fa-edit fa-3x text-danger mb-3"></i>
+                            <h5>Свои критерии</h5>
+                            <p class="text-muted small">Задайте собственные критерии оценки</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Поле для ввода свои критериев -->
+            <div id="customCriteriaBox" style="display: none;" class="card mb-4">
+                <div class="card-body">
+                    <label for="customCriteria" class="form-label">
+                        <strong>Введите свои критерии (каждый с новой строки):</strong>
+                    </label>
+                    <textarea class="form-control" 
+                              name="custom_criteria" 
+                              id="customCriteria" 
+                              rows="5" 
+                              placeholder="Например:&#10;1. Структура выступления&#10;2. Аргументация&#10;3. Контакт с аудиторией"></textarea>
+                </div>
+            </div>
+
+            <!-- Кнопка отправки -->
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
+                    <i class="fas fa-paper-plane"></i> Начать анализ
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% else %}
+<!-- Для неавторизованных - landing page -->
+
+<div class="hero-section text-center">
+    <div class="container">
+        <h1 class="display-4 mb-4">
+            <i class="fas fa-microphone-alt"></i> AI Тренер Выступлений
+        </h1>
+        <p class="lead mb-4">
+            Загрузите видео своего выступления и получите детальный анализ речи и структуры
+        </p>
+        <div class="d-flex gap-3 justify-content-center">
+            <a href="{{ url_for('auth.register') }}" class="btn btn-light btn-lg">
+                <i class="fas fa-user-plus"></i> Регистрация
+            </a>
+            <a href="{{ url_for('auth.login') }}" class="btn btn-outline-light btn-lg">
+                <i class="fas fa-sign-in-alt"></i> Вход
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3 mb-4">
+        <div class="text-center">
+            <i class="fas fa-video feature-icon text-primary"></i>
+            <h4>Загрузите видео</h4>
+            <p class="text-muted">Поддержка всех популярных форматов</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-4">
+        <div class="text-center">
+            <i class="fas fa-brain feature-icon text-success"></i>
+            <h4>AI анализ</h4>
+            <p class="text-muted">Темп, паузы, слова-паразиты</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-4">
+        <div class="text-center">
+            <i class="fas fa-chart-line feature-icon text-warning"></i>
+            <h4>Детальные графики</h4>
+            <p class="text-muted">Визуализация всех метрик</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-4">
+        <div class="text-center">
+            <i class="fas fa-dumbbell feature-icon text-info"></i>
+            <h4>Упражнения</h4>
+            <p class="text-muted">Персональные рекомендации</p>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if current_user.is_authenticated %}
+<script>
+console.log('[INIT] Upload form script loaded');
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('[DOMContentLoaded] DOM loaded');
+    
+    const videoInput = document.getElementById('videoInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const submitBtn = document.getElementById('submitBtn');
+    const uploadZone = document.getElementById('uploadZone');
+
+    console.log('[Elements]', {
+        videoInput: !!videoInput,
+        fileInfo: !!fileInfo,
+        fileName: !!fileName,
+        submitBtn: !!submitBtn,
+        uploadZone: !!uploadZone
+    });
+
+    if (!videoInput || !fileInfo || !fileName || !submitBtn || !uploadZone) {
+        console.error('[ERROR] Form elements not found');
+        return;
+    }
+
+    // Клик по зоне загрузки
+    uploadZone.addEventListener('click', () => {
+        console.log('[Event] Upload zone clicked');
+        videoInput.click();
+    });
+
+    // Выбор файла
+    videoInput.addEventListener('change', (e) => {
+        console.log('[Event] File changed:', e.target.files[0]?.name);
+        if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            fileName.textContent = file.name;
+            fileInfo.style.display = 'block';
+            submitBtn.disabled = false;
+        }
+    });
+
+    // Drag & Drop
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+    });
+
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        
+        if (e.dataTransfer.files.length > 0) {
+            videoInput.files = e.dataTransfer.files;
+            const file = e.dataTransfer.files[0];
+            fileName.textContent = file.name;
+            fileInfo.style.display = 'block';
+            submitBtn.disabled = false;
+        }
+    });
+
+    // Очистка файла
+    window.clearFile = function() {
+        videoInput.value = '';
+        fileInfo.style.display = 'none';
+        submitBtn.disabled = true;
+    };
+
+    // Выбор сценария
+    const scenarioCards = document.querySelectorAll('.scenario-card');
+    console.log('[Scenarios] Found', scenarioCards.length, 'scenario cards');
+    
+    scenarioCards.forEach(card => {
+        card.addEventListener('click', () => {
+            const scenario = card.getAttribute('data-scenario');
+            console.log('[Event] Scenario clicked:', scenario);
+            
+            document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            
+            document.getElementById('scenarioInput').value = scenario;
+            
+            const customCriteriaBox = document.getElementById('customCriteriaBox');
+            if (customCriteriaBox) {
+                if (scenario === 'custom') {
+                    customCriteriaBox.style.display = 'block';
+                } else {
+                    customCriteriaBox.style.display = 'none';
+                }
+            }
+        });
+    });
+
+    // При вводе текста в поле критериев
+    const customCriteriaField = document.getElementById('customCriteria');
+    if (customCriteriaField) {
+        customCriteriaField.addEventListener('input', () => {
+            if (customCriteriaField.value.trim().length > 0) {
+                document.getElementById('scenarioInput').value = 'custom';
+                document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
+                const customCard = document.querySelector('[data-scenario="custom"]');
+                if (customCard) customCard.classList.add('selected');
+            }
+        });
+    }
+
+    // Обработка отправки формы
+    const uploadForm = document.getElementById('uploadForm');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', (e) => {
+            console.log('[Submit] Form submitted');
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Загрузка...';
+            
+            fetch('{{ url_for("analyze") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('[Response]', data);
+                if (data.redirect) {
+                    window.location.href = data.redirect;
+                } else if (data.error) {
+                    alert('Ошибка: ' + data.error);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Начать анализ';
+                }
+            })
+            .catch(error => {
+                console.error('[Error]', error);
+                alert('Ошибка при загрузке видео');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Начать анализ';
+            });
+        });
+    }
+});
+
+// PWA Handlers (вне DOMContentLoaded)
+// deferredPrompt уже объявлена в pwa-install.js, используем её
+
+const pwaInstallBtn = document.getElementById('pwaInstallButtonHeader');
+if (pwaInstallBtn) {
+    pwaInstallBtn.addEventListener('click', async () => {
+        if (typeof deferredPrompt !== 'undefined' && deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log('PWA install:', outcome);
+            deferredPrompt = null;
+            document.getElementById('pwaInstallBanner').classList.add('hidden');
+        }
+    });
+}
+
+window.addEventListener('appinstalled', (e) => {
+    console.log('PWA app installed');
+    document.getElementById('pwaInstallBanner').classList.add('hidden');
+});
+</script>
+{% endif %}
+{% endblock %}

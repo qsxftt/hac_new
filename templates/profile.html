@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Профиль - AI Тренер{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <!-- Карточка профиля -->
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="mb-3">
+                    <i class="fas fa-user-circle fa-5x text-primary"></i>
+                </div>
+                <h4>{{ current_user.username }}</h4>
+                <p class="text-muted">{{ current_user.email }}</p>
+                
+                <hr>
+                
+                <div class="text-start">
+                    <p class="mb-2">
+                        <i class="fas fa-calendar-alt text-muted"></i>
+                        <strong>Регистрация:</strong><br>
+                        <small>{{ current_user.created_at.strftime('%d.%m.%Y') }}</small>
+                    </p>
+                    <p class="mb-2">
+                        <i class="fas fa-clock text-muted"></i>
+                        <strong>Последний вход:</strong><br>
+                        <small>{{ current_user.last_login.strftime('%d.%m.%Y %H:%M') if current_user.last_login else 'Н/Д' }}</small>
+                    </p>
+                </div>
+                
+                <hr>
+                
+                <!-- Кнопка редактирования -->
+                <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#editProfileModal">
+                    <i class="fas fa-edit"></i> Редактировать профиль
+                </button>
+            </div>
+        </div>
+        
+        <!-- Статистика -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-chart-bar"></i> Статистика
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Всего анализов:</span>
+                        <strong>{{ stats.total_analyses }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Выполнено упражнений:</span>
+                        <strong>{{ stats.exercises_completed }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Процент выполнения:</span>
+                        <strong>{{ stats.completion_rate|round(1) }}%</strong>
+                    </div>
+                </div>
+                
+                <a href="{{ url_for('progress') }}" class="btn btn-outline-primary btn-sm w-100">
+                    <i class="fas fa-chart-line"></i> Подробная статистика
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <!-- Последние анализы -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-history"></i> Последние анализы
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if recent_analyses %}
+                <div class="list-group list-group-flush">
+                    {% for analysis in recent_analyses %}
+                    <a href="{{ url_for('results', analysis_id=analysis.id) if analysis.status == 'completed' else '#' }}" 
+                       class="list-group-item list-group-item-action {{ 'disabled' if analysis.status != 'completed' }}">
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">
+                                    <i class="fas fa-video text-primary"></i>
+                                    {{ analysis.video_filename }}
+                                </h6>
+                                <small class="text-muted">{{ analysis.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                            </div>
+                            <span class="badge bg-{{ 'success' if analysis.status == 'completed' else 'warning' if analysis.status == 'processing' else 'danger' }}">
+                                {{ analysis.status }}
+                            </span>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('history') }}" class="btn btn-outline-primary">
+                        Смотреть всю историю <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">У вас пока нет анализов</p>
+                    <a href="{{ url_for('index') }}" class="btn btn-primary">
+                        <i class="fas fa-upload"></i> Загрузить первое видео
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Быстрые действия -->
+        <div class="row mt-4">
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-upload fa-3x text-primary mb-3"></i>
+                        <h5>Загрузить видео</h5>
+                        <p class="text-muted small">Начать новый анализ</p>
+                        <a href="{{ url_for('index') }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Загрузить
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-chart-line fa-3x text-success mb-3"></i>
+                        <h5>Мой прогресс</h5>
+                        <p class="text-muted small">Статистика и графики</p>
+                        <a href="{{ url_for('progress') }}" class="btn btn-success">
+                            <i class="fas fa-chart-bar"></i> Смотреть
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно редактирования профиля -->
+<div class="modal fade" id="editProfileModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit"></i> Редактировать профиль
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('edit_profile') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Имя</label>
+                        <input type="text" class="form-control" id="username" name="username" 
+                               value="{{ current_user.username }}" required minlength="2">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" 
+                               value="{{ current_user.email }}" disabled>
+                        <small class="text-muted">Email нельзя изменить</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        Отмена
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Сохранить
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
